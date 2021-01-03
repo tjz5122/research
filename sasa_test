@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torchvision
 import matplotlib.pyplot as plt
-from sasa_plus import SASA
 
 
 def model(input_size,num_classes):
