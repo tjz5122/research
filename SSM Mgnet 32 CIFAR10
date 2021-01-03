@@ -7,9 +7,10 @@ import torchvision
 from timeit import default_timer as timer
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from SSM import SSM
 
-use_cuda = torch.cuda.is_available()
-print('Use GPU?', use_cuda)
+#use_cuda = torch.cuda.is_available()
+#print('Use GPU?', use_cuda)
 
 
 
@@ -139,8 +140,8 @@ num_iteration = [1,1,1,1] # for each layer do 1 iteration or you can change to [
 # Step 1: Define a model
 my_model = MgNet(num_channel_input, num_iteration, num_channel_u, num_channel_f, num_classes)
 
-if use_cuda:
-    my_model = my_model.cuda()
+#if use_cuda:
+   # my_model = my_model.cuda()
 
 # Step 2: Define a loss function and training algorithm
 criterion = nn.CrossEntropyLoss()
@@ -183,9 +184,9 @@ for epoch in range(num_epochs):
     start_training = timer()
     my_model.train()
     for i, (images, labels) in enumerate(trainloader):
-        if use_cuda:
-          images = images.cuda()
-          labels = labels.cuda()
+       # if use_cuda:
+       #   images = images.cuda()
+       #   labels = labels.cuda()
 
         # Forward pass to get the loss
         outputs = my_model(0,images)   # We need additional 0 input for u in MgNet
@@ -205,9 +206,9 @@ for epoch in range(num_epochs):
     total = 0
     for i, (images, labels) in enumerate(trainloader):
         with torch.no_grad():
-          if use_cuda:
-              images = images.cuda()
-              labels = labels.cuda()  
+        #  if use_cuda:
+         #     images = images.cuda()
+         #     labels = labels.cuda()  
           outputs = my_model(0,images)  # We need additional 0 input for u in MgNet, since u is initialized with 0; if do not give u a value in there, it will be reinitialized by forward function. 
           p_max, predicted = torch.max(outputs, 1) 
           total += labels.size(0)
@@ -224,9 +225,9 @@ for epoch in range(num_epochs):
     total = 0
     for i, (images, labels) in enumerate(testloader):
         with torch.no_grad():
-          if use_cuda:
-              images = images.cuda()
-              labels = labels.cuda()
+       #   if use_cuda:
+       #       images = images.cuda()
+         #     labels = labels.cuda()
           outputs = my_model(0,images)      # We need additional 0 input for u in MgNet
           p_max, predicted = torch.max(outputs, 1) 
           total += labels.size(0)
@@ -259,11 +260,4 @@ plt.title('learning rate vs epoch by ssm_modified in MgNet {}*{} for CIFAR10' .f
 plot = plt.plot(lr_list)
 plt.xlabel('number of epoch')
 plt.ylabel('learning rate')
-plt.show()
-
-plt.figure()
-plt.title('statistic vs epoch by ssm_modified in MgNet {}*{} for CIFAR10' .format(degree,degree))
-plot = plt.plot(statistic_list)
-plt.xlabel('number of epoch')
-plt.ylabel('statistic')
 plt.show()
