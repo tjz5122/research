@@ -1,0 +1,237 @@
+import torch
+import numpy as np
+import torch.nn as nn
+import  torch.nn.functional as F
+import torch.optim as optim
+import torchvision
+from timeit import default_timer as timer
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+use_cuda = torch.cuda.is_available()
+print('Use GPU?', use_cuda)
+
+class MgIte(nn.Module): # u^l <-- u^l + S^l *(f^l-A_l*u^l)
+    def __init__(self, A, S):
+        super().__init__()
+        
+        self.A = A
+        self.S = S
+
+        self.bn1 =nn.BatchNorm2d(A.weight.size(0)) ##### For MgNet: BN #####
+        self.bn2 =nn.BatchNorm2d(S.weight.size(0)) ##### For MgNet: BN #####
+    
+    def forward(self, out):
+        u, f = out # from the MG class forward method out = (u, f) 
+        u = u + F.relu(self.bn2(self.S(F.relu(self.bn1((f-self.A(u))))))) ##### For MgNet: add BN and ReLU #####
+        out = (u, f) # as the input of next i
+        return out
+
+
+
+class MgRestriction(nn.Module):
+    def __init__(self, A_old, A, Pi, R):
+        super().__init__()
+
+        self.A_old = A_old
+        self.A = A
+        self.Pi = Pi
+        self.R = R
+
+        self.bn1 = nn.BatchNorm2d(Pi.weight.size(0))   ##### For MgNet: BN #####
+        self.bn2 = nn.BatchNorm2d(R.weight.size(0))    ##### For MgNet: BN #####
+
+    def forward(self, out):
+        u_old, f_old = out #use the data in the u^l and f^l
+        u = F.relu(self.bn1(self.Pi(u_old)))                              ##### For MgNet: add BN and ReLU #####
+        f = F.relu(self.bn2(self.R(f_old-self.A_old(u_old)))) + self.A(u) ##### For MgNet: add BN and ReLU #####        
+        out = (u,f)
+        return out
+
+
+class MgNet(nn.Module):
+    def __init__(self, num_channel_input, num_iteration, num_channel_u, num_channel_f, num_classes):
+        # num_iteration = [2,1,1,1]:we have four layers, the number of iteration of each corresponding layer is 2,1,1,1
+        # In multigrid: num_channel_input =1 , num_channel_u =1, num_channel_f =1
+        super().__init__()
+        self.num_iteration = num_iteration
+        self.num_channel_u = num_channel_u
+        
+        ##### For MgNet: Initialization layer #####
+        self.conv1 = nn.Conv2d(num_channel_input, num_channel_f, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(num_channel_f)        
+
+        
+        A = nn.Conv2d(num_channel_u, num_channel_f, kernel_size=3, stride=1, padding=1, bias=False)
+        # since A * u , then input_channel of A = num_channel_u; since f - A * u, then output_channel of A = num_channel_f
+        S = nn.Conv2d(num_channel_f, num_channel_u, kernel_size=3,stride=1, padding=1, bias=False)
+        # since S * (f - A * u), then input_channel of S = num_channel_f; since u + S * (f - A * u), then output_channel of S = num_channel_u
+        layers = []
+        for l, num_iteration_l in enumerate(num_iteration): #l: l-th layer.   num_iteration_l: the number of iterations of l-th layer
+            for i in range(num_iteration_l):
+                layers.append(MgIte(A, S)) # MgIte = multigrid iteration;  initial with twp convolutional A,S
+
+            setattr(self, 'layer'+str(l), nn.Sequential(*layers))
+            # set attribute. This is equivalent to define
+            # self.layer1 = nn.Sequential(*layers)
+            # self.layer2 = nn.Sequential(*layers)
+            # ...
+            # self.layerJ = nn.Sequential(*layers)
+
+
+            if l < len(num_iteration)-1:  #if l = 0, layer is 1; if l = 1, layer is 2....
+                #if l = J(l is not the last layer), we don't need to do this step
+                A_old = A # define old A to be the A we defined before
+                
+                A = nn.Conv2d(num_channel_u, num_channel_f, kernel_size=3,stride=1, padding=1, bias=False)
+                S = nn.Conv2d(num_channel_f, num_channel_u, kernel_size=3,stride=1, padding=1, bias=False)
+
+                ##### For MgNet: padding=1 #####
+                Pi = nn.Conv2d(num_channel_u, num_channel_u, kernel_size=3,stride=2, padding=1, bias=False)
+                R = nn.Conv2d(num_channel_f, num_channel_f, kernel_size=3, stride=2, padding=1, bias=False)
+                
+                
+                layers= [MgRestriction(A_old, A, Pi, R)] 
+                # when going to a new layer, doing "u^{l+1} <-- \pi_{l}^{l+1} * u^l", "f^{l+1} <-- R*2 (f^l-A_l*u^l)+A_{l+1}*u^{l+1}"
+        
+        ##### For MgNet: average pooling and fully connected layer for classification #####
+        self.pooling = nn.AdaptiveAvgPool2d(1)  # since we dont know the size of u after doing so many layers ,then pooling the data in each channel to size=1
+        # if size of u is (batch_size, channel, size, size) --> AdaptiveAvgPool2d(1) ----> (batch_size, channel, 1,1)
+        self.fc = nn.Linear(num_channel_u ,num_classes) #fully connected layer
+
+    def forward(self, u, f):
+        f = F.relu(self.bn1(self.conv1(f)))                 ##### For MgNet: initialization of f #####
+        if use_cuda:                                        ##### For MgNet: initialization of u #####
+            u = torch.zeros(f.size(0),self.num_channel_u,f.size(2),f.size(3), device=torch.device('cuda')) # batch size is same as f
+            # batch_size, channel, size
+        else:
+            u = torch.zeros(f.size(0),self.num_channel_u,f.size(2),f.size(3))        
+       
+        
+        out = (u, f) 
+
+        for l in range(len(self.num_iteration)): # add every layer of u into u list for the last step
+            # usually "out = self.layer1(out)// out = self.layer2(out)..."
+            out = getattr(self, 'layer'+str(l))(out) #since we don't know how many layer we have when defining the model
+
+        
+        ##### For MgNet: average pooling and fully connected layer for classification #####
+        u, f = out       
+        u = self.pooling(u) #do avg pooling
+        u = u.view(u.shape[0], -1)  #reshape u batch_Size to vector
+        u = self.fc(u)
+        return u                                        
+    
+### Implementation
+minibatch_size = 128
+num_epochs = 120
+lr = 0.1
+degree = 32
+num_channel_input = 3 # since cifar10
+num_channel_u = degree # usaually take channel u and f same, suggested value = 64,128,256,512.....
+num_channel_f = degree
+num_classes = 100
+num_iteration_list = [[1,1,1,1],[2,1,1,1],[2,2,2,2]] # for each layer do 1 iteration or you can change to [2,2,2,2] or [2,1,1,1]
+
+
+total_test_accuracy_list = []
+total_lr_list = []
+time_list = []
+# Step 1: Define a model
+for num_iteration in num_iteration_list:
+    print('number of iteration = {}'.format(num_iteration))
+    my_model = MgNet(num_channel_input, num_iteration, num_channel_u, num_channel_f, num_classes)
+    if use_cuda:
+        my_model = my_model.cuda()
+    # Step 2: Define a loss function and training algorithm
+    criterion = nn.CrossEntropyLoss()
+    # Step 3: load dataset
+    normalize = torchvision.transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))
+    transform_train = torchvision.transforms.Compose([torchvision.transforms.RandomCrop(32, padding=4),
+                                                  torchvision.transforms.RandomHorizontalFlip(),
+                                                  torchvision.transforms.ToTensor(),
+                                                  normalize])
+    transform_test  = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),normalize])
+    trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=minibatch_size, shuffle=True)
+    testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
+    optimizer = SASA(my_model.parameters(), lr=0.1, weight_decay=0.0001,momentum=0.9, testfreq=len(trainloader))
+    start = timer()
+    train_accuracy_list = []
+    test_accuracy_list = []
+    lr_list = []
+    #Step 4: Train the NNs
+    # One epoch is when an entire dataset is passed through the neural network only once.
+    for epoch in range(num_epochs):
+        current_lr = optimizer.param_groups[0]['lr']
+        lr_list.append(current_lr)
+        my_model.train()
+        for i, (images, labels) in enumerate(trainloader):
+            if use_cuda:
+              images = images.cuda()
+              labels = labels.cuda()
+            # Forward pass to get the loss
+            outputs = my_model(0,images)   # We need additional 0 input for u in MgNet
+            loss = criterion(outputs, labels)
+            # Backward and compute the gradient
+            optimizer.zero_grad()
+            loss.backward()  #backpropragation
+            optimizer.step() #update the weights/parameters
+      # Training accuracy
+        my_model.eval()
+        correct = 0
+        total = 0
+        for i, (images, labels) in enumerate(trainloader):
+            with torch.no_grad():
+              if use_cuda:
+                  images = images.cuda()
+                  labels = labels.cuda() 
+              outputs = my_model(0,images)  # We need additional 0 input for u in MgNet, since u is initialized with 0; if do not give u a value in there, it will be reinitialized by forward function. 
+              p_max, predicted = torch.max(outputs, 1) 
+              total += labels.size(0)
+              correct += (predicted == labels).sum()
+        training_accuracy = float(correct)/total
+        train_accuracy_list.append(training_accuracy) 
+        # Test accuracy
+        correct = 0
+        total = 0
+        for i, (images, labels) in enumerate(testloader):
+            with torch.no_grad():
+              if use_cuda:
+                  images = images.cuda()
+                  labels = labels.cuda()
+              outputs = my_model(0,images)      # We need additional 0 input for u in MgNet
+              p_max, predicted = torch.max(outputs, 1) 
+              total += labels.size(0)
+              correct += (predicted == labels).sum()
+        test_accuracy = float(correct)/total
+        test_accuracy_list.append(test_accuracy)
+        # print('Epoch: {}, learning rate: {}, the training accuracy: {}, the test accuracy: {}' .format(epoch+1,current_lr,training_accuracy,test_accuracy)) 
+    end = timer()
+    time_list.append(end - start)
+    print('Total Computation Time:',end - start)
+    total_test_accuracy_list.append(test_accuracy_list)
+    total_lr_list.append(lr_list)
+
+print('the total time cost for 3 types of number of iterations are {}, {}, {}'.format(total_lr_list[0],total_lr_list[1],total_lr_list[2]))
+
+plt.figure()
+plt.title('Test accuracy vs epoch using SASA+ by MgNet {}*{} in CIFAR100'.format(degree, degree))
+plot = plt.plot(total_test_accuracy_list[0], label = "number of iteration is [1,1,1,1]")
+plot = plt.plot(total_test_accuracy_list[1], label = "number of iteration is [2,1,1,1]")
+plot = plt.plot(total_test_accuracy_list[2], label = "number of iteration is [2,2,2,2]")
+plt.xlabel('number of epoch')
+plt.ylabel('test accuracy')
+plt.legend(shadow=True)
+plt.show()
+
+plt.figure()
+plt.title('Learning rate vs epoch using SASA+ by MgNet {}*{} in CIFAR100'.format(degree, degree))
+plot = plt.plot(total_lr_list[0], label = "number of iteration is [1,1,1,1]")
+plot = plt.plot(total_lr_list[1], label = "number of iteration is [2,1,1,1]")
+plot = plt.plot(total_lr_list[2], label = "number of iteration is [2,2,2,2]")
+plt.xlabel('number of epoch')
+plt.ylabel('learning rate')
+plt.legend(shadow=True)
+plt.show()
