@@ -1,10 +1,11 @@
 import torch
 import math
+import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 from torch.optim import Optimizer
 from scipy import stats
 import matplotlib.pyplot as plt
-
 
 class QHM(Optimizer):
     r"""
