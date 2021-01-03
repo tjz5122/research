@@ -1,0 +1,100 @@
+import torch
+import torch.nn as nn
+import torchvision
+import matplotlib.pyplot as plt
+from sasa_plus import SASA
+
+
+def model(input_size,num_classes):
+    return nn.Linear(input_size,num_classes)
+
+input_size = 784
+num_classes = 10
+my_model =model(input_size, num_classes)
+
+
+criterion = nn.CrossEntropyLoss()
+
+#optimizer = optim.SASAPflugBatch(model.parameters(), lr=0.1)
+
+MNIST_transform = torchvision.transforms.ToTensor()
+
+trainset = torchvision.datasets.MNIST(root='./data', train= True, download=True, transform=MNIST_transform)
+train_loader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True)
+
+testset = torchvision.datasets.MNIST(root='./data', train= False, download=True, transform=MNIST_transform)
+test_loader = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False)
+
+optimizer = SASA(my_model.parameters(), lr=0.1, weight_decay=0.0001,momentum=0.9, testfreq=len(train_loader))
+
+num_epochs = 120
+
+train_accuracy_list = []
+test_accuracy_list = []
+lr_list = []
+l = []
+
+
+for epoch in range(num_epochs):
+    current_lr = optimizer.param_groups[0]['lr']
+    lr_list.append(current_lr)
+    for i, (images, labels) in enumerate(train_loader):
+        
+        images = images.reshape(images.size(0), 28*28) # move this reshape to model class
+
+        # Forward pass to get the loss
+        outputs = my_model(images) 
+        loss = criterion(outputs, labels)
+        
+        
+        # Backward and compute the gradient
+        optimizer.zero_grad()
+        loss.backward()  #backpropragation
+        optimizer.step() #update the weights/parameters
+        print(optimizer.state['nSteps'])
+
+        
+    # Training accuracy
+    correct = 0
+    total = 0
+    for i, (images, labels) in enumerate(train_loader):
+        images = images.reshape(images.size(0), 28*28) # move this reshape to model class
+        outputs = my_model(images)
+        p_max, predicted = torch.max(outputs, 1) 
+        total += labels.size(0)
+        correct += (predicted == labels).sum()
+    training_accuracy = float(correct)/total
+    train_accuracy_list.append(training_accuracy) 
+    
+    # Test accuracy
+    correct = 0
+    total = 0
+    for i, (images, labels) in enumerate(test_loader):
+        images = images.reshape(images.size(0), 28*28) # move this reshape to model class
+        outputs = my_model(images)
+        p_max, predicted = torch.max(outputs, 1) 
+        total += labels.size(0)
+        correct += (predicted == labels).sum()
+    test_accuracy = float(correct)/total
+    test_accuracy_list.append(test_accuracy)
+    
+    
+        
+    print(optimizer.state['nSteps'])
+    print('Epoch: {}, learning rate: {}, the training accuracy: {}, the test accuracy: {}' .format(epoch+1,current_lr, training_accuracy,test_accuracy))
+    
+    
+  
+plt.figure()
+plt.title('test accuracy vs epoch')
+plot = plt.plot(test_accuracy_list)
+plt.xlabel('number of epoch')
+plt.ylabel('test accuracy')
+plt.show()
+
+plt.figure()
+plt.title('learning rate vs epoch')
+plot = plt.plot(lr_list)
+plt.xlabel('number of epoch')
+plt.ylabel('learning rate')
+plt.show()
