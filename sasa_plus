@@ -488,3 +488,5 @@ class SASA(QHM):
                 if buf_name in state:
                     state[buf_name].zero_()
         return None
+
+print("SASA_plus load successfully")
