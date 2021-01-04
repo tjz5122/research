@@ -544,8 +544,6 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         loss.backward()  #backpropragation
         optimizer.step() #update the weights/parameters
-        print(optimizer.state['nSteps'])
-
         
     # Training accuracy
     correct = 0
