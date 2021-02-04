@@ -1,4 +1,3 @@
-
 import math
 import torch
 import torch.nn as nn
@@ -307,3 +306,124 @@ class SSM(SSM_Optimizer):
                     view = state[buf_name].data.view(-1)
                 views.append(view)
         return torch.cat(views, 0) 
+        
+        
+#implement
+use_cuda = torch.cuda.is_available()
+print('Use GPU?', use_cuda)
+
+my_model = torchvision.models.resnet18(num_classes=10)
+
+cifarify = True
+if cifarify:
+    class Identity(torch.nn.Module):
+        def __init__(self):
+            super(Identity, self).__init__()
+
+        def forward(self, x):
+            return x
+
+    my_model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
+    my_model.maxpool = Identity()
+
+my_model = my_model.to('cuda')
+
+
+minibatch_size = 128
+num_epochs = 120
+lr = 1
+
+criterion = nn.CrossEntropyLoss()
+
+    
+
+normalize = torchvision.transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761))
+
+transform_train = torchvision.transforms.Compose([torchvision.transforms.RandomCrop(32, padding=4),
+                                                  torchvision.transforms.RandomHorizontalFlip(),
+                                                  torchvision.transforms.ToTensor(),
+                                                  normalize])
+
+transform_test  = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),normalize])
+
+
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=minibatch_size, shuffle=True)
+
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
+
+optimizer = SSM(my_model.parameters(), lr=1, weight_decay=0.0001,momentum=0.9, testfreq=len(trainloader), mode = 'loss with smooth', var_mode='mb', tolerance = 0.01, minN_stats=100)
+
+
+
+
+train_accuracy_list = []
+test_accuracy_list = []
+lr_list = []
+statistic_list = []
+avg_loss_list = []
+
+for epoch in range(num_epochs):
+    running_loss = 0
+    my_model.train()
+    for i, (images, labels) in enumerate(trainloader):
+        if use_cuda:
+            images = images.cuda()
+            labels = labels.cuda()
+        # Forward pass to get the loss
+        outputs = my_model(images) 
+        loss = criterion(outputs, labels)   
+        optimizer.state['loss'] = loss.item()
+        # Backward and compute the gradient
+        optimizer.zero_grad()
+        loss.backward()  #backpropragation
+        running_loss += loss.item()
+        optimizer.step() #update the weights/parameters
+        
+    
+    avg_loss_list.append(running_loss)
+
+    # Training accuracy
+    my_model.eval()
+    correct = 0
+    total = 0
+    for i, (images, labels) in enumerate(trainloader):
+      with torch.no_grad():
+          if use_cuda:
+                  images = images.cuda()
+                  labels = labels.cuda()  
+          outputs = my_model(images)
+          p_max, predicted = torch.max(outputs, 1) 
+          total += labels.size(0)
+          correct += (predicted == labels).sum()
+    training_accuracy = float(correct)/total
+    train_accuracy_list.append(training_accuracy) 
+    
+    # Test accuracy
+    correct = 0
+    total = 0
+    for i, (images, labels) in enumerate(testloader):
+      with torch.no_grad():
+          if use_cuda:
+                  images = images.cuda()
+                  labels = labels.cuda()
+          outputs = my_model(images)
+          p_max, predicted = torch.max(outputs, 1) 
+          total += labels.size(0)
+          correct += (predicted == labels).sum()
+    test_accuracy = float(correct)/total
+    test_accuracy_list.append(test_accuracy)
+    statistic_list.append(optimizer.state['statistic'])
+    current_lr = optimizer.state['lr']
+    lr_list.append(current_lr)
+
+
+file = open("SSM_Resnet18_minstat100_tol0.01_mb_smooth.txt","x")
+file.write("train_accuracy_list = {}\n".format(str(train_accuracy_list)))
+file.write("test_accuracy_list = {}\n".format(str(test_accuracy_list)))
+file.write("lr_list = {}\n".format(lr_list)))
+file.write("statistic_list = {}\n".format(statistic_list)))
+file.write("avg_loss_list = {}\n".format(avg_loss_list)))
+file.close()
+print("complete")
