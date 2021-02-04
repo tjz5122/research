@@ -364,6 +364,7 @@ lr_list = []
 statistic_list = []
 avg_loss_list = []
 
+start = timer()
 for epoch in range(num_epochs):
     running_loss = 0
     my_model.train()
@@ -417,6 +418,8 @@ for epoch in range(num_epochs):
     statistic_list.append(optimizer.state['statistic'])
     current_lr = optimizer.state['lr']
     lr_list.append(current_lr)
+    
+end = timer()
 
 
 file = open("SSM_Resnet18_minstat50_tol0.01_mb_smooth.txt","x")
