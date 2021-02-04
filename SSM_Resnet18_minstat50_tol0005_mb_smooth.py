@@ -364,6 +364,7 @@ lr_list = []
 statistic_list = []
 avg_loss_list = []
 
+start = timer()
 for epoch in range(num_epochs):
     running_loss = 0
     my_model.train()
@@ -418,8 +419,9 @@ for epoch in range(num_epochs):
     current_lr = optimizer.state['lr']
     lr_list.append(current_lr)
 
+end = timer()
 
-file = open("SSM_Resnet18_minstat50_tol0.005_mb_smooth.txt","x")
+file = open("SSM_Resnet18_minstat50_tol0005_mb_smooth.txt","x")
 file.write("train_accuracy_list = {}\n".format(str(train_accuracy_list)))
 file.write("test_accuracy_list = {}\n".format(str(test_accuracy_list)))
 file.write("lr_list = {}\n".format(str(lr_list)))
