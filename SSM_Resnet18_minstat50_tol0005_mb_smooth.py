@@ -420,6 +420,7 @@ for epoch in range(num_epochs):
     lr_list.append(current_lr)
 
 end = timer()
+print("total computational time is", end - start)
 
 file = open("SSM_Resnet18_minstat50_tol0005_mb_smooth.txt","x")
 file.write("train_accuracy_list = {}\n".format(str(train_accuracy_list)))
