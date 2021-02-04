@@ -353,7 +353,7 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=minibatch_size, s
 testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
 testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
 
-optimizer = SSM(my_model.parameters(), lr=1, weight_decay=0.0001,momentum=0.9, testfreq=len(trainloader), mode = 'loss with smooth', var_mode='mb', tolerance = 0.05, minN_stats=50)
+optimizer = SSM(my_model.parameters(), lr=1, weight_decay=0.0001,momentum=0.9, testfreq=len(trainloader), mode = 'loss with smooth', var_mode='mb', tolerance = 0.005, minN_stats=100)
 
 
 
@@ -418,3 +418,12 @@ for epoch in range(num_epochs):
     current_lr = optimizer.state['lr']
     lr_list.append(current_lr)
 
+
+file = open("SSM_Resnet18_minstat100_tol0.005_mb_smooth.txt","x")
+file.write("train_accuracy_list = {}\n".format(str(train_accuracy_list)))
+file.write("test_accuracy_list = {}\n".format(str(test_accuracy_list)))
+file.write("lr_list = {}\n".format(lr_list)))
+file.write("statistic_list = {}\n".format(statistic_list)))
+file.write("avg_loss_list = {}\n".format(avg_loss_list)))
+file.close()
+print("complete")
