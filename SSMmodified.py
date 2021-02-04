@@ -1,4 +1,3 @@
-#@title SSMmodified
 import math
 import torch
 import torch.nn as nn
@@ -258,6 +257,7 @@ class SSM(SSM_Optimizer):
         # check statistics and adjust learning rate
         self.state['stats_test'] = 0
         self.state['stats_stationary'] = 0
+        self.state['statistic'] = 0
         if self.state['bucket'].count > self.state['minN_stats'] and self.state['nSteps'] % self.state['testfreq'] == 0:
             stationary= self.state['bucket'].stats_test(self.state['significance'], self.state['tolerance'], self.state['var_mode'])
             self.state['stats_test'] = 1
