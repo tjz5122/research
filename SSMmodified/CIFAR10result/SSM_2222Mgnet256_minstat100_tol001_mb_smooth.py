@@ -486,6 +486,7 @@ for epoch in range(num_epochs):
         # Backward and compute the gradient
         optimizer.zero_grad()
         loss.backward()  #backpropragation
+        running_loss += loss.item()
         optimizer.step() #update the weights/parameters
     avg_loss_list.append(running_loss)
     
