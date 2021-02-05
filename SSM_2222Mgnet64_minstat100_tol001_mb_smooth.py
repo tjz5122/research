@@ -422,7 +422,7 @@ class MgNet(nn.Module):
 minibatch_size = 128
 num_epochs = 120
 lr = 1
-degree = 128
+degree = 64
 num_channel_input = 3 # since cifar10
 num_channel_u = degree # usaually take channel u and f same, suggested value = 64,128,256,512.....
 num_channel_f = degree
