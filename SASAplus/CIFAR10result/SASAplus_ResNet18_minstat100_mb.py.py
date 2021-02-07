@@ -591,44 +591,75 @@ meanCriteria_list = []
 test_accuracy_list =[]
 lr_list = []
 avg_loss_list = []
-
-start = time()
+    
+    
+start = timer()
 for epoch in range(250):
     # Reset accumulative running loss at beginning or each epoch
-    running_loss = 0.0
+    running_loss = 0
+    my_model.train()
+    for i, (images, labels) in enumerate(trainloader):
+        if use_cuda:
+          images = images.cuda()
+          labels = labels.cuda()
 
-    for (images, labels) in trainloader:
-        # switch to train mode each time due to potential use of eval mode
-        net.train()
-    
-        # Compute model outputs and loss function 
-        images, labels = images.to(device), labels.to(device)
-        outputs = net(images)
-        loss = loss_func(outputs, labels)
-    
-        # Compute gradient with back-propagation 
+        # Forward pass to get the loss
+        outputs = my_model(images)   # We need additional 0 input for u in MgNet
+        loss = criterion(outputs, labels)
+        # Backward and compute the gradient
         optimizer.zero_grad()
-        loss.backward()
+        loss.backward()  #backpropragation
         running_loss += loss.item()
-        optimizer.step()
-        # Accumulate running loss during each epoch
-        
+        optimizer.step() #update the weights/parameters
     avg_loss_list.append(running_loss)
-    net.eval()
+        
+ # Training accuracy
+    my_model.eval()
+    correct = 0
+    total = 0
+    for i, (images, labels) in enumerate(trainloader):
+        with torch.no_grad():
+          if use_cuda:
+              images = images.cuda()
+              labels = labels.cuda()  
+          outputs = my_model(images) 
+          p_max, predicted = torch.max(outputs, 1) 
+          total += labels.size(0)
+          correct += (predicted == labels).sum()
+    training_accuracy = float(correct)/total
+    train_accuracy_list.append(training_accuracy)     
+    
+    # Test accuracy
     correct = 0
     total = 0
     for i, (images, labels) in enumerate(testloader):
-      with torch.no_grad():
-          images, labels = images.to(device), labels.to(device)
-          outputs = net(images)
+        with torch.no_grad():
+          if use_cuda:
+              images = images.cuda()
+              labels = labels.cuda()
+          outputs = my_model(images)      # We need additional 0 input for u in MgNet
           p_max, predicted = torch.max(outputs, 1) 
           total += labels.size(0)
-          correct += (predicted == labels).sum().item()
+          correct += (predicted == labels).sum()
     test_accuracy = float(correct)/total
-
     test_accuracy_list.append(test_accuracy)
     current_lr = optimizer.state['lr']
     lr_list.append(current_lr)
     lowCriteria_list.append(optimizer.state['lowCriteria'])
     highCriteria_list.append(optimizer.state['highCriteria'])
     meanCriteria_list.append(optimizer.state['meanCriteria'])
+   
+end = timer()
+print("total computational time is", end - start)
+
+file = open("SASAplus_ResNet18_minstat100_mb.txt","x")
+file.write("train_accuracy_list = {}\n".format(str(train_accuracy_list)))
+file.write("test_accuracy_list = {}\n".format(str(test_accuracy_list)))
+file.write("lr_list = {}\n".format(str(lr_list)))
+file.write("lowCriteria_list = {}\n".format(str(lowCriteria_list)))
+file.write("highCriteria_list = {}\n".format(str(highCriteria_list)))
+file.write("meanCriteria_list = {}\n".format(str(meanCriteria_list)))
+file.write("avg_loss_list = {}\n".format(str(avg_loss_list)))
+file.write("total_time = {}\n".format(str(end - start)))
+file.close()
+print("complete")
