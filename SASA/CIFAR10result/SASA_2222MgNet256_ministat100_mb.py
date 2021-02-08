@@ -283,7 +283,7 @@ class HalfQueue(object):
         std_dict['olbm'] = std
         df_dict['olbm'] = self.n - b_n
 
-        return gbar, std_dict[mode], df_dict[mode]#, std_dict, df_dict
+        return gbar, std_dict[mode], df_dict[mode], std_dict, df_dict
         # total mean / variance of batchs / degree of freedom of batches
 
     def reset(self):
