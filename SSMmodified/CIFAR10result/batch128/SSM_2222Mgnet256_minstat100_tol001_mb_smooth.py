@@ -467,6 +467,7 @@ test_accuracy_list = []
 lr_list = []
 statistic_list = []
 avg_loss_list = []
+key_list = []
 
 start = timer()
 #Step 4: Train the NNs
@@ -522,6 +523,7 @@ for epoch in range(num_epochs):
     test_accuracy = float(correct)/total
     test_accuracy_list.append(test_accuracy)
     statistic_list.append(optimizer.state['statistic'])
+    key_list.append(tuple(optimizer.state['stats_val'],optimizer.state['loss'],optimizer.state['smoothing']))
     current_lr = optimizer.state['lr']
     lr_list.append(current_lr)
    
@@ -533,6 +535,7 @@ file.write("train_accuracy_list = {}\n".format(str(train_accuracy_list)))
 file.write("test_accuracy_list = {}\n".format(str(test_accuracy_list)))
 file.write("lr_list = {}\n".format(str(lr_list)))
 file.write("statistic_list = {}\n".format(str(statistic_list)))
+file.write("key_list = {}\n".format(str(key_list)))
 file.write("avg_loss_list = {}\n".format(str(avg_loss_list)))
 file.write("total_time = {}\n".format(str(end - start)))
 file.close()
