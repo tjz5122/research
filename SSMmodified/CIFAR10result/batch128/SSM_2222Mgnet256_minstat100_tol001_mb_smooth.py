@@ -523,7 +523,7 @@ for epoch in range(num_epochs):
     test_accuracy = float(correct)/total
     test_accuracy_list.append(test_accuracy)
     statistic_list.append(optimizer.state['statistic'])
-    key_list.append(tuple(optimizer.state['stats_val'],optimizer.state['loss'],optimizer.state['smoothing']))
+    key_list.append(tuple([optimizer.state['stats_val'],optimizer.state['loss'],optimizer.state['smoothing']]))
     current_lr = optimizer.state['lr']
     lr_list.append(current_lr)
    
