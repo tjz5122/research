@@ -423,12 +423,12 @@ for my_model in modeldic:
     end = timer()
     time = end - start
     
-    '''
+    
     #save best model
     filename = "SGDfixedlr_"+ my_model +"_bestparam"
-    path = "best-model/{}.pt".format(filename)
+    path = "best_model/{}.pt".format(filename)
     torch.save(best_parameter, path)
-    '''
+    
     
     '''
     #load best model
