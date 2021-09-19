@@ -328,7 +328,7 @@ def adjust_learning_rate(optimizer, epoch, init_lr):
 
 #Step 4: Train the NNs
 # One epoch is when an entire dataset is passed through the neural network only once. 
-f = open("SGDfixedLR_one_TestAllNet.py", 'w')
+f = open("SGDfixedLR_one_TestAllNet", 'w')
 
 for my_model in modeldic:
     
