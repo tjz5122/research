@@ -587,6 +587,7 @@ num_iteration = [2,2,2,2] # for each layer do 1 iteration or you can change to [
 minibatch_size = 128
 wd = 0.0005 
 momentum = 0.9
+dampening = 0
 
 #model hyperparameter
 keymode = 'loss with smooth'
@@ -671,7 +672,7 @@ for my_model in modeldic:
     else:
         lr = 1    #1
     
-    optimizer = SSM(modeldic[my_model].parameters(), lr=lr, weight_decay=wd, momentum=momentum, testfreq=testfreq, var_mode=varmode, 
+    optimizer = SSM(modeldic[my_model].parameters(), lr=lr, weight_decay=wd, momentum=momentum, dampening = dampening, testfreq=testfreq, var_mode=varmode, 
                     leak_ratio=leakratio, minN_stats=minstats, mode=keymode, samplefreq=samplefreq, significance=significance, drop_factor=dropfactor, trun=trun)
     total_parameter = sum(p.numel() for p in modeldic[my_model].parameters())
 
