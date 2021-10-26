@@ -751,10 +751,6 @@ for my_model in modeldic:
     end = timer()
     time = end - start
     
-    #save best model
-    filename = "ssm_"+ my_model +"_bestparam"
-    path = "best_model/{}.pt".format(filename)
-    torch.save(best_parameter, path)
     
     
     '''
