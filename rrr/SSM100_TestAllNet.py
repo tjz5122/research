@@ -616,12 +616,7 @@ efficientnet = EfficientNet.from_pretrained('efficientnet-b0')
 modeldic  = {"mgnet128":mgnet128, 
              "mgnet256":mgnet256,
              "resnet18":resnet18, 
-             "resnet34":resnet34, 
-             "preactresnet18":preactresnet18, 
-             "preactresnet34": preactresnet34,
-             "densenet121":densenet121,
-             "densenet161":densenet161,
-             "efficientnet":efficientnet}
+             "resnet34":resnet34}
 
 
 
