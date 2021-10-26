@@ -592,12 +592,11 @@ dampening = momentum
 #model hyperparameter
 keymode = 'loss with smooth'
 varmode = 'bm'
-leakratio = 8   #12
-samplefreq = 10   #15
+leakratio_list = [8,12]   #12
+samplefreq_list = [10,15]   #15
+trun_list= [0.02, 0.03]
 significance = 0.05
 dropfactor = 10
-trun= 0.02
-
 
 
 # Step 1: Define a model
@@ -653,119 +652,120 @@ testfreq = len(trainloader)
 f = open("SSM100_TestAllNet", 'w')
 
 for my_model in modeldic:
-    
-    test_accuracy_list = []
-    lr_list = []
-    statistic_list = []
-    avg_loss_list = []
-    max_test_accuarcy = 0
-    best_parameter = 0
-    peak_epoch = 0
-    
-    if my_model == "preactresnet18" or my_model == "preactresnet34":
-        lr = 0.1
-    else:
-        lr = 1    #1
-    
-    optimizer = SSM(modeldic[my_model].parameters(), lr=lr, weight_decay=wd, momentum=momentum, dampening = dampening, testfreq=testfreq, var_mode=varmode, 
-                    leak_ratio=leakratio, minN_stats=minstats, mode=keymode, samplefreq=samplefreq, significance=significance, drop_factor=dropfactor, trun=trun)
-    total_parameter = sum(p.numel() for p in modeldic[my_model].parameters())
-
-    start = timer()
-    for epoch in range(num_epochs):
-
-        running_loss = 0
-        modeldic[my_model].train()
-        for i, (images, labels) in enumerate(trainloader):
-            if use_cuda:
-              images = images.cuda()
-              labels = labels.cuda()
-    
-            # Forward pass to get the loss
-            if my_model == "mgnet128" or my_model == "mgnet256":
-                outputs = modeldic[my_model](0,images)   # We need additional 0 input for u in MgNet
-            else:
-                outputs = modeldic[my_model](images) 
-            loss = criterion(outputs, labels)
-            optimizer.state['loss'] = loss.item()
-            # Backward and compute the gradient
-            optimizer.zero_grad()
-            loss.backward()  #backpropragation
-            running_loss += loss.item()
-            optimizer.step() #update the weights/parameters
-        
-      # Training accuracy
-        modeldic[my_model].eval()
-        correct = 0
-        total = 0
-        for i, (images, labels) in enumerate(trainloader):
-            with torch.no_grad():
-              if use_cuda:
-                  images = images.cuda()
-                  labels = labels.cuda()  
-              if my_model == "mgnet128" or my_model == "mgnet256":
-                  outputs = modeldic[my_model](0,images)   # We need additional 0 input for u in MgNet
-              else:
-                  outputs = modeldic[my_model](images) 
-              p_max, predicted = torch.max(outputs, 1) 
-              total += labels.size(0)
-              correct += (predicted == labels).sum()
-        training_accuracy = float(correct)/total
-        
-        # Test accuracy
-        correct = 0
-        total = 0
-        for i, (images, labels) in enumerate(testloader):
-            with torch.no_grad():
-              if use_cuda:
-                  images = images.cuda()
-                  labels = labels.cuda()
-              if my_model == "mgnet128" or my_model == "mgnet256":
-                  outputs = modeldic[my_model](0,images)   # We need additional 0 input for u in MgNet
-              else:
-                  outputs = modeldic[my_model](images) 
-              p_max, predicted = torch.max(outputs, 1) 
-              total += labels.size(0)
-              correct += (predicted == labels).sum()
-              
-        test_accuracy = float(correct)/total
-        current_lr = optimizer.state['lr']
-        
-        test_accuracy_list.append(test_accuracy)
-        lr_list.append(current_lr)
-        statistic_list.append(optimizer.state['statistic'])
-        avg_loss_list.append(running_loss)
-        
-        # update parameter
-        if test_accuracy > max_test_accuarcy:
-            max_test_accuarcy = test_accuracy
-            best_parameter = modeldic[my_model].state_dict()
-            peak_epoch = epoch
-    
-    
-    end = timer()
-    time = end - start
-    
-    
-    
-    '''
-    #load best model
-    device = torch.device("cuda")
-    model = ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes)
-    model.load_state_dict(torch.load(path))
-    model.to(device)
-    '''
-    
-    
-    f.write("ssm_"+ my_model +"_testacculist = {}\n".format(test_accuracy_list))
-    f.write("ssm_"+ my_model +"_lrlist = np.log10(array({}))\n".format(lr_list))
-    f.write("ssm_"+ my_model +"_statlist = {}\n".format(statistic_list))
-    f.write("ssm_"+ my_model +"_losslist = {}\n".format(avg_loss_list))
-    f.write("ssm_"+ my_model +"_time = {}\n".format(time))
-    f.write("ssm_"+ my_model +"_maxtestaccu = {}\n".format(max_test_accuarcy))
-    f.write("ssm_"+ my_model +"_peakepoch = {}\n".format(peak_epoch))
-    f.write("ssm_"+ my_model +"_totalparam = {}\n".format(total_parameter))
-    #f.write("ssm_"+ my_model +"_bestparam = {}\n".format(best_parameter))
-    f.write("\n")
+    for leakratio in leakratio_list:
+        for samplefreq in samplefreq_list:
+            for trun in trun_list:
+                test_accuracy_list = []
+                lr_list = []
+                statistic_list = []
+                avg_loss_list = []
+                max_test_accuarcy = 0
+                best_parameter = 0
+                peak_epoch = 0
+                
+                if my_model == "preactresnet18" or my_model == "preactresnet34":
+                    lr = 0.1
+                else:
+                    lr = 1    #1
+                
+                optimizer = SSM(modeldic[my_model].parameters(), lr=lr, weight_decay=wd, momentum=momentum, dampening = dampening, testfreq=testfreq, var_mode=varmode, 
+                                leak_ratio=leakratio, minN_stats=minstats, mode=keymode, samplefreq=samplefreq, significance=significance, drop_factor=dropfactor, trun=trun)
+                total_parameter = sum(p.numel() for p in modeldic[my_model].parameters())
+            
+                start = timer()
+                for epoch in range(num_epochs):
+            
+                    running_loss = 0
+                    modeldic[my_model].train()
+                    for i, (images, labels) in enumerate(trainloader):
+                        if use_cuda:
+                          images = images.cuda()
+                          labels = labels.cuda()
+                
+                        # Forward pass to get the loss
+                        if my_model == "mgnet128" or my_model == "mgnet256":
+                            outputs = modeldic[my_model](0,images)   # We need additional 0 input for u in MgNet
+                        else:
+                            outputs = modeldic[my_model](images) 
+                        loss = criterion(outputs, labels)
+                        optimizer.state['loss'] = loss.item()
+                        # Backward and compute the gradient
+                        optimizer.zero_grad()
+                        loss.backward()  #backpropragation
+                        running_loss += loss.item()
+                        optimizer.step() #update the weights/parameters
+                    
+                  # Training accuracy
+                    modeldic[my_model].eval()
+                    correct = 0
+                    total = 0
+                    for i, (images, labels) in enumerate(trainloader):
+                        with torch.no_grad():
+                          if use_cuda:
+                              images = images.cuda()
+                              labels = labels.cuda()  
+                          if my_model == "mgnet128" or my_model == "mgnet256":
+                              outputs = modeldic[my_model](0,images)   # We need additional 0 input for u in MgNet
+                          else:
+                              outputs = modeldic[my_model](images) 
+                          p_max, predicted = torch.max(outputs, 1) 
+                          total += labels.size(0)
+                          correct += (predicted == labels).sum()
+                    training_accuracy = float(correct)/total
+                    
+                    # Test accuracy
+                    correct = 0
+                    total = 0
+                    for i, (images, labels) in enumerate(testloader):
+                        with torch.no_grad():
+                          if use_cuda:
+                              images = images.cuda()
+                              labels = labels.cuda()
+                          if my_model == "mgnet128" or my_model == "mgnet256":
+                              outputs = modeldic[my_model](0,images)   # We need additional 0 input for u in MgNet
+                          else:
+                              outputs = modeldic[my_model](images) 
+                          p_max, predicted = torch.max(outputs, 1) 
+                          total += labels.size(0)
+                          correct += (predicted == labels).sum()
+                          
+                    test_accuracy = float(correct)/total
+                    current_lr = optimizer.state['lr']
+                    
+                    test_accuracy_list.append(test_accuracy)
+                    lr_list.append(current_lr)
+                    statistic_list.append(optimizer.state['statistic'])
+                    avg_loss_list.append(running_loss)
+                    
+                    # update parameter
+                    if test_accuracy > max_test_accuarcy:
+                        max_test_accuarcy = test_accuracy
+                        best_parameter = modeldic[my_model].state_dict()
+                        peak_epoch = epoch
+                
+                
+                end = timer()
+                time = end - start
+                
+                
+                '''
+                #load best model
+                device = torch.device("cuda")
+                model = ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes)
+                model.load_state_dict(torch.load(path))
+                model.to(device)
+                '''
+                
+                
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_testacculist = {}\n".format(test_accuracy_list))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_lrlist = np.log10(array({}))\n".format(lr_list))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_statlist = {}\n".format(statistic_list))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_losslist = {}\n".format(avg_loss_list))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_time = {}\n".format(time))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_maxtestaccu = {}\n".format(max_test_accuarcy))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_peakepoch = {}\n".format(peak_epoch))
+                f.write("ssm100_lk={}_sf={}_tr={}".format(leakratio,samplefreq,trun) + my_model +"_totalparam = {}\n".format(total_parameter))
+                #f.write("ssm_"+ my_model +"_bestparam = {}\n".format(best_parameter))
+                f.write("\n")
 
 f.close()
