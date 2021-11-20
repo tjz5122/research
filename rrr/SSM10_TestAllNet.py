@@ -1,22 +1,21 @@
-
-import torch
 import math
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Optimizer
-import torch.nn as nn
+from scipy import stats
 import numpy as np
+import torch.optim as optim
 import torchvision
 from timeit import default_timer as timer
-from scipy import stats
-import torchvision.models as models
-from efficientnet_pytorch import EfficientNet
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
-use_cuda = torch.cuda.is_available()
-print('Use GPU?', use_cuda)
 
 class SSM_Optimizer(Optimizer):
 
-    def __init__(self, params, lr=-1, momentum=0, weight_decay=0):
+
+    def __init__(self, params, lr=-1, momentum=0, SSM_Optimizer_nu=1, weight_decay=0):
         # nu can take values outside of the interval [0,1], but no guarantee of convergence?
         if lr <= 0:
             raise ValueError("Invalid value for learning rate (>0): {}".format(lr))
@@ -25,7 +24,7 @@ class SSM_Optimizer(Optimizer):
         if weight_decay < 0:
             raise ValueError("Invalid value for weight_decay (>=0): {}".format(weight_decay))
 
-        defaults = dict(lr=lr, momentum=momentum, weight_decay=weight_decay)
+        defaults = dict(lr=lr, momentum=momentum, SSM_Optimizer_nu=SSM_Optimizer_nu, weight_decay=weight_decay)
         super(SSM_Optimizer, self).__init__(params, defaults)
 
 
@@ -39,7 +38,7 @@ class SSM_Optimizer(Optimizer):
         return loss
 
     def add_weight_decay(self):
-        
+        # weight_decay is the same as adding L2 regularization
         for group in self.param_groups:
             weight_decay = group['weight_decay']
             for p in group['params']:
@@ -48,25 +47,28 @@ class SSM_Optimizer(Optimizer):
                 if weight_decay > 0:
                     p.grad.data.add_(weight_decay, p.data)
 
-    def SSM_direction_and_update(self, dampening = 0):
+    def SSM_direction_and_update(self):
 
         for group in self.param_groups:
             momentum = group['momentum']
             for p in group['params']:
                 if p.grad is None:
                     continue
-                param_state = self.state[p]
-                g_k = p.grad.data
+                #param_state = self.state[p]   # Optimization parameters
+                x = p.data 
+                g = p.grad.data
+                state = self.state[p]
                 # get momentum buffer.
-                if 'momentum_buffer' not in param_state:
-                    buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
+                if 'momentum_buffer' not in state:
+                    h = state['momentum_buffer'] = torch.zeros_like(x)
                 else:
-                    buf = param_state['momentum_buffer']
-                buf.mul_(momentum).add_(1.0 - dampening, g_k)
-                param_state['step_buffer'] = buf
-                p.data.add_(-group['lr'], buf)
-                
-                    
+                    h = state['momentum_buffer']
+                h.mul_(momentum).add_(1.0 - momentum, g)
+                state['step_buffer'] = h
+                #update
+                p.data.add_(-group['lr'], state['step_buffer'])
+
+
                     
 class Bucket(object):
     def __init__(self, size, ratio, dtype, device, fixed_len=-1):
@@ -120,13 +122,13 @@ class Bucket(object):
 
     # ! Need to add safeguard to allow compute only if there are enough entries
     def mean_std(self, mode='bm'):
-        mean = torch.mean(self.buffer[self.start:self.end]).item() # mean of whole
+        mean = torch.mean(self.buffer[self.start:self.end]).item()
 
         if mode == 'bm':        # batch mean variance
-            b_n = int(math.floor(math.sqrt(self.count))) #batch size
-            Yks = F.avg_pool1d(self.buffer[self.start:self.end].unsqueeze(0).unsqueeze(0), kernel_size=b_n, stride=b_n).view(-1) # batch mean
+            b_n = int(math.floor(math.sqrt(self.count)))
+            Yks = F.avg_pool1d(self.buffer[self.start:self.end].unsqueeze(0).unsqueeze(0), kernel_size=b_n, stride=b_n).view(-1)
             diffs = Yks - mean
-            std = math.sqrt(b_n /(len(Yks)-1))*torch.norm(diffs).item() # len(Yks) is number of batch
+            std = math.sqrt(b_n /(len(Yks)-1))*torch.norm(diffs).item()
             dof = b_n - 1
         elif mode == 'olbm':    # overlapping batch mean
             b_n = int(math.floor(math.sqrt(self.count)))
@@ -140,23 +142,22 @@ class Bucket(object):
 
         return mean, std, dof
 
-    def stats_test(self, sigma, tolerance, mode='bm',step_test=1,truncate=0.02):
+    def stats_test(self, sigma, tolerance, mode='bm'):
         mean, std, dof = self.mean_std(mode=mode)
 
         # confidence interval
         t_sigma_dof = stats.t.ppf(1-sigma/2., dof)
-        self.statistic = std * t_sigma_dof / math.sqrt(self.count)
-        if step_test != 0:
-            self.statistic -= truncate
-            
-        return self.statistic < tolerance
+        stat = std * t_sigma_dof / math.sqrt(self.count)
+        self.statistic = stat
+        
+        return stat < tolerance
 
 
 class SSM(SSM_Optimizer):
 
-    def __init__(self, params, lr=-1, momentum=0, dampening=0, weight_decay=0, 
-                 drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='bm',
-                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, trun=0.02, mode='loss_plus_smooth'):
+    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, 
+                 warmup=1000, drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='mb',
+                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, logstats=0, mode='loss with smooth'):
 
         if lr <= 0:
             raise ValueError("Invalid value for learning rate (>0): {}".format(lr))
@@ -168,12 +169,14 @@ class SSM(SSM_Optimizer):
             raise ValueError("Invalid value for drop_factor (>=1): {}".format(drop_factor))
         if significance <= 0 or significance >= 1:
             raise ValueError("Invalid value for significance (0,1): {}".format(significance))
-        if var_mode not in ['bm', 'olbm', 'iid']:
-            raise ValueError("Invalid value for var_mode ('bm', 'olbm', or 'iid'): {}".format(var_mode))
+        if var_mode not in ['mb', 'olbm', 'iid']:
+            raise ValueError("Invalid value for var_mode ('mb', 'olmb', or 'iid'): {}".format(var_mode))
         if leak_ratio < 1:
             raise ValueError("Invalid value for leak_ratio (int, >=1): {}".format(leak_ratio))
         # if minN_stats < 100:
         #     raise ValueError("Invalid value for minN_stats (int, >=100): {}".format(minN_stats))
+        if warmup < 0:
+            raise ValueError("Invalid value for warmup (int, >1): {}".format(warmup))
         if testfreq < 1:
             raise ValueError("Invalid value for testfreq (int, >=1): {}".format(testfreq))
 
@@ -188,19 +191,18 @@ class SSM(SSM_Optimizer):
 
         self.state['lr'] = float(lr)
         self.state['momemtum'] = float(momentum)
-        self.state['dampening'] = float(dampening)
         self.state['drop_factor'] = drop_factor
         self.state['significance'] = significance
         self.state['tolerance'] = tolerance
         self.state['var_mode'] = var_mode
         self.state['minN_stats'] = int(minN_stats)
+        self.state['warmup'] = int(warmup)
         self.state['samplefreq'] = int(samplefreq)
         self.state['testfreq'] = int(testfreq)
+        self.state['logstats'] = int(logstats)
         self.state['nSteps'] = 0
         self.state['loss'] = 0
         self.state['mode'] = mode
-        self.state['step_test'] = 0
-        self.state['truncate'] = trun
 
 
         # statistics to monitor
@@ -225,66 +227,74 @@ class SSM(SSM_Optimizer):
             loss = closure()
 
         self.add_weight_decay()
-        self.SSM_direction_and_update(dampening=self.state['dampening'])
+        self.SSM_direction_and_update()
         self.state['nSteps'] += 1
         self.stats_adaptation()
 
         return loss
 
     def stats_adaptation(self):
-
-        dk = self._gather_flat_buffer('step_buffer')
-        xk1 = self._gather_flat_param() 
-        gk = self._gather_flat_grad()
         
         
+        bucket = self.state['bucket']
+        # add the statistic in to the bucket according to the frequency 
         if self.state['nSteps'] % self.state['samplefreq'] == 0:
 
-            if self.state['mode'] == 'loss_plus_smooth':
-                self.state['tolerance'] = 0.01
-                self.state['smoothing'] = xk1.dot(gk).item() - (0.5 * self.state['lr']) * ((1 + self.state['momemtum'])/(1 - self.state['momemtum'])) * (dk.dot(dk).item())
-                if self.state['step_test'] == 0:
-                    self.state['stats_val'] =  self.state['loss'] + self.state['smoothing']
-                else:
-                    self.state['loss'] = np.log10(self.state['loss']) / np.log10(10/self.state['step_test']) 
-                    self.state['stats_val'] = self.state['loss']  + self.state['smoothing']
-                    
-                    
+            if self.state['mode'] == 'loss with smooth':
+                fristpart = 0
+                secondpart = 0
+        
+                for group in self.param_groups:
+                    for p in group['params']:
+                        if p.grad is None:
+                            continue
+                        xk1 = p.data.view(-1)
+                        dk = self.state[p]['step_buffer'].data.view(-1)     # OK after super().step()
+                        fristpart += xk1.dot(dk).item()
+                        secondpart += dk.dot(dk).item()
+                secondpart *= 0.5 * self.state['lr']
+        
+                '''
+                dk = self._gather_flat_buffer('step_buffer')
+                xk1 = self._gather_flat_param() 
+                gk = self._gather_flat_grad()
+                '''
+                
+                #self.state['smoothing'] = xk1.dot(gk).item() + (0.5 * self.state['lr']) * ((1 + self.state['momemtum'])/(1 - self.state['momemtum'])) * (dk.dot(dk).item())
+                self.state['smoothing'] = fristpart + secondpart
+                self.state['stats_val'] =  self.state['loss'] + self.state['smoothing']
+        
             if self.state['mode'] == 'loss':
-                self.state['tolerance'] = 0.005
-                if self.state['step_test'] == 0:
-                    self.state['stats_val'] =  self.state['loss'] 
-                else:
-                    self.state['loss'] = np.log10(self.state['loss']) / np.log10(10/self.state['step_test']) 
-                    self.state['stats_val'] = self.state['loss']  
-                
-                
+                self.state['stats_val'] =  self.state['loss'] 
+            
             if self.state['mode'] == 'sasa_plus':
                 self.state['stats_x1d'] = xk1.dot(dk).item()
                 self.state['stats_ld2'] = (0.5 * self.state['lr']) * (dk.dot(dk).item())
                 self.state['stats_val'] = self.state['stats_x1d'] + self.state['stats_ld2']
         
-            # add statistic to leaky bucket
-            self.state['bucket'].add(self.state['stats_val'])
+            ## add statistic to leaky bucket
+            bucket.add(self.state['stats_val'])
+        
         
         # check statistics and adjust learning rate
         self.state['stats_test'] = 0
         self.state['stats_stationary'] = 0
         self.state['statistic'] = 0
-        if self.state['bucket'].count > self.state['minN_stats'] and self.state['nSteps'] % self.state['testfreq'] == 0:
-            stationary= self.state['bucket'].stats_test(self.state['significance'], self.state['tolerance'], self.state['var_mode'],self.state['step_test'],self.state['truncate'])
+        
+        #if the bucket length is large enough and it is time to do the test (generally is when epoch ends)
+        if (bucket.count > self.state['minN_stats']) and (self.state['nSteps'] % self.state['testfreq'] == 0):
+            stationary= bucket.stats_test(self.state['significance'], self.state['tolerance'], self.state['var_mode'])
             self.state['stats_test'] = 1
-            self.state['statistic'] = self.state['bucket'].statistic
+            self.state['statistic'] = bucket.statistic
             self.state['stats_stationary'] = int(stationary)
     
-            # perform statistical test for stationarity
-            if self.state['stats_stationary'] == 1:
+            ## perform statistical test for stationarity
+            if self.state['warmup'] < self.state['nSteps'] and self.state['stats_stationary'] == 1:
                 self.state['lr'] /= self.state['drop_factor']
-                self.state['step_test'] += 1
                 for group in self.param_groups:
                     group['lr'] = self.state['lr']
-                self._zero_buffers('momentum_buffer')
-                self.state['bucket'].reset()
+                self._zero_buffers('momentum_buffer') #????
+                bucket.reset()
 
 
     def _gather_flat_grad(self):
@@ -322,6 +332,7 @@ class SSM(SSM_Optimizer):
                 views.append(view)
         return torch.cat(views, 0) 
     
+    
     def _zero_buffers(self, buf_name):
         for group in self.param_groups:
             for p in group['params']:
@@ -329,7 +340,6 @@ class SSM(SSM_Optimizer):
                 if buf_name in state:
                     state[buf_name].zero_()
         return None
-    
     
     
 
