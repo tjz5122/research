@@ -617,11 +617,7 @@ mgnet128 = MgNet(num_channel_input, num_iteration, 128, 128, num_classes)
 mgnet256 = MgNet(num_channel_input, num_iteration, 256, 256, num_classes)
 resnet18 = ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes)
 resnet34 = ResNet(BasicBlock, [3,4,6,3], num_classes=num_classes)
-preactresnet18 = PreActResNet18()
-preactresnet34 = PreActResNet34()
-densenet121 = models.densenet121()
-densenet161 = models.densenet161()
-efficientnet = EfficientNet.from_pretrained('efficientnet-b0')
+
 
 
 modeldic  = {"mgnet128":mgnet128, 
