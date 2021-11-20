@@ -49,7 +49,7 @@ class SSM_Optimizer(Optimizer):
                 if weight_decay > 0:
                     p.grad.data.add_(weight_decay, p.data)
 
-    def SSM_direction_and_update(self):
+    def SSM_direction_and_update(self, dampening = 0):
 
         for group in self.param_groups:
             momentum = group['momentum']
@@ -65,7 +65,8 @@ class SSM_Optimizer(Optimizer):
                     h = state['momentum_buffer'] = torch.zeros_like(x)
                 else:
                     h = state['momentum_buffer']
-                h.mul_(momentum).add_(1.0 - momentum, g)
+                    
+                h.mul_(momentum).add_(1.0 - dampening, g)
                 state['step_buffer'] = h
                 #update
                 p.data.add_(-group['lr'], state['step_buffer'])
@@ -157,7 +158,7 @@ class Bucket(object):
 
 class SSM(SSM_Optimizer):
 
-    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, 
+    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, dampening=0,
                  warmup=1000, drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='mb',
                  leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, logstats=0, mode='loss with smooth'):
 
@@ -193,6 +194,7 @@ class SSM(SSM_Optimizer):
 
         self.state['lr'] = float(lr)
         self.state['momemtum'] = float(momentum)
+        self.state['dampening'] = float(dampening)
         self.state['drop_factor'] = drop_factor
         self.state['significance'] = significance
         self.state['tolerance'] = tolerance
@@ -229,7 +231,7 @@ class SSM(SSM_Optimizer):
             loss = closure()
 
         self.add_weight_decay()
-        self.SSM_direction_and_update()
+        self.SSM_direction_and_update(dampening = self.state['dampening'])
         self.state['nSteps'] += 1
         self.stats_adaptation()
 
