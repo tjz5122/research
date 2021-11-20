@@ -11,6 +11,8 @@ from timeit import default_timer as timer
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+use_cuda = torch.cuda.is_available()
+print('Use GPU?', use_cuda)
 
 class SSM_Optimizer(Optimizer):
 
