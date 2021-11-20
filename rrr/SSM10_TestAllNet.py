@@ -661,7 +661,7 @@ testfreq = len(trainloader)
 
 #Step 4: Train the NNs
 # One epoch is when an entire dataset is passed through the neural network only once. 
-f = open("SSM10_TestAllNet", 'w')
+f = open("newSSM10_TestAllNet", 'w')
 
 for my_model in modeldic:
     for leakratio in leakratio_list:
