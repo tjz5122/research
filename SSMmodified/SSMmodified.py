@@ -54,19 +54,21 @@ class SSM_Optimizer(Optimizer):
             for p in group['params']:
                 if p.grad is None:
                     continue
-                param_state = self.state[p]
-                g_k = p.grad.data
+                #param_state = self.state[p]   # Optimization parameters
+                x = p.data 
+                g = p.grad.data
+                state = self.state[p]
                 # get momentum buffer.
-                if 'momentum_buffer' not in param_state:
-                    buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                    buf.mul_(momentum).add_(1.0 - momentum, g_k)
+                if 'momentum_buffer' not in state:
+                    h = state['momentum_buffer'] = torch.zeros_like(x)
                 else:
-                    buf = param_state['momentum_buffer']
-                    buf.mul_(momentum).add_(1.0 - momentum, g_k)
-            
-                p.data.add_(-group['lr'], buf)
-                
-                    
+                    h = state['momentum_buffer']
+                h.mul_(momentum).add_(1.0 - momentum, g)
+                state['step_buffer'] = h
+                #update
+                p.data.add_(-group['lr'], state['step_buffer'])
+
+
                     
 class Bucket(object):
     def __init__(self, size, ratio, dtype, device, fixed_len=-1):
@@ -232,14 +234,34 @@ class SSM(SSM_Optimizer):
         return loss
 
     def stats_adaptation(self):
-
-        dk = self._gather_flat_buffer('step_buffer')
-        xk1 = self._gather_flat_param() 
-        gk = self._gather_flat_grad()
+        
+        
+        bucket = self.state['bucket']
+        # add the statistic in to the bucket according to the frequency 
         if self.state['nSteps'] % self.state['samplefreq'] == 0:
 
             if self.state['mode'] == 'loss with smooth':
-                self.state['smoothing'] = xk1.dot(gk).item() - (0.5 * self.state['lr']) * ((1 + self.state['momemtum'])/(1 - self.state['momemtum'])) * (dk.dot(dk).item())
+                fristpart = 0
+                secondpart = 0
+        
+                for group in self.param_groups:
+                    for p in group['params']:
+                        if p.grad is None:
+                            continue
+                        xk1 = p.data.view(-1)
+                        dk = self.state[p]['step_buffer'].data.view(-1)     # OK after super().step()
+                        fristpart += xk1.dot(dk).item()
+                        secondpart += dk.dot(dk).item()
+                secondpart *= 0.5 * self.state['lr']
+        
+                '''
+                dk = self._gather_flat_buffer('step_buffer')
+                xk1 = self._gather_flat_param() 
+                gk = self._gather_flat_grad()
+                '''
+                
+                #self.state['smoothing'] = xk1.dot(gk).item() + (0.5 * self.state['lr']) * ((1 + self.state['momemtum'])/(1 - self.state['momemtum'])) * (dk.dot(dk).item())
+                self.state['smoothing'] = fristpart + secondpart
                 self.state['stats_val'] =  self.state['loss'] + self.state['smoothing']
         
             if self.state['mode'] == 'loss':
@@ -250,26 +272,29 @@ class SSM(SSM_Optimizer):
                 self.state['stats_ld2'] = (0.5 * self.state['lr']) * (dk.dot(dk).item())
                 self.state['stats_val'] = self.state['stats_x1d'] + self.state['stats_ld2']
         
+            ## add statistic to leaky bucket
+            bucket.add(self.state['stats_val'])
         
-            # add statistic to leaky bucket
-            self.state['bucket'].add(self.state['stats_val'])
         
         # check statistics and adjust learning rate
         self.state['stats_test'] = 0
         self.state['stats_stationary'] = 0
         self.state['statistic'] = 0
-        if self.state['bucket'].count > self.state['minN_stats'] and self.state['nSteps'] % self.state['testfreq'] == 0:
-            stationary= self.state['bucket'].stats_test(self.state['significance'], self.state['tolerance'], self.state['var_mode'])
+        
+        #if the bucket length is large enough and it is time to do the test (generally is when epoch ends)
+        if (bucket.count > self.state['minN_stats']) and (self.state['nSteps'] % self.state['testfreq'] == 0):
+            stationary= bucket.stats_test(self.state['significance'], self.state['tolerance'], self.state['var_mode'])
             self.state['stats_test'] = 1
-            self.state['statistic'] = self.state['bucket'].statistic
+            self.state['statistic'] = bucket.statistic
             self.state['stats_stationary'] = int(stationary)
     
-            # perform statistical test for stationarity
+            ## perform statistical test for stationarity
             if self.state['warmup'] < self.state['nSteps'] and self.state['stats_stationary'] == 1:
                 self.state['lr'] /= self.state['drop_factor']
                 for group in self.param_groups:
                     group['lr'] = self.state['lr']
-                self.state['bucket'].reset()
+                self._zero_buffers('momentum_buffer') #????
+                bucket.reset()
 
 
     def _gather_flat_grad(self):
@@ -306,3 +331,12 @@ class SSM(SSM_Optimizer):
                     view = state[buf_name].data.view(-1)
                 views.append(view)
         return torch.cat(views, 0) 
+    
+    
+    def _zero_buffers(self, buf_name):
+        for group in self.param_groups:
+            for p in group['params']:
+                state = self.state[p]
+                if buf_name in state:
+                    state[buf_name].zero_()
+        return None
