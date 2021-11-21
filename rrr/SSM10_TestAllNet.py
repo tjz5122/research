@@ -145,22 +145,24 @@ class Bucket(object):
 
         return mean, std, dof
 
-    def stats_test(self, sigma, tolerance, mode='bm'):
+    def stats_test(self, sigma, tolerance, mode='bm',step_test=1,truncate=0.02):
         mean, std, dof = self.mean_std(mode=mode)
 
         # confidence interval
         t_sigma_dof = stats.t.ppf(1-sigma/2., dof)
-        stat = std * t_sigma_dof / math.sqrt(self.count)
-        self.statistic = stat
-        
-        return stat < tolerance
+        self.statistic = std * t_sigma_dof / math.sqrt(self.count)
+        print(self.statistic)
+        if step_test != 0:
+            self.statistic -= truncate
+            
+        return self.statistic < tolerance
 
 
 class SSM(SSM_Optimizer):
 
     def __init__(self, params, lr=-1, momentum=0, weight_decay=0, dampening=0,
-                 warmup=1000, drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='mb',
-                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, logstats=0, mode='loss with smooth'):
+                 drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='bm',
+                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, trun=0.02, mode='loss_plus_smooth'):
 
         if lr <= 0:
             raise ValueError("Invalid value for learning rate (>0): {}".format(lr))
@@ -172,14 +174,12 @@ class SSM(SSM_Optimizer):
             raise ValueError("Invalid value for drop_factor (>=1): {}".format(drop_factor))
         if significance <= 0 or significance >= 1:
             raise ValueError("Invalid value for significance (0,1): {}".format(significance))
-        if var_mode not in ['mb', 'olbm', 'iid']:
-            raise ValueError("Invalid value for var_mode ('mb', 'olmb', or 'iid'): {}".format(var_mode))
+        if var_mode not in ['bm', 'olbm', 'iid']:
+            raise ValueError("Invalid value for var_mode ('bm', 'olbm', or 'iid'): {}".format(var_mode))
         if leak_ratio < 1:
             raise ValueError("Invalid value for leak_ratio (int, >=1): {}".format(leak_ratio))
         # if minN_stats < 100:
         #     raise ValueError("Invalid value for minN_stats (int, >=100): {}".format(minN_stats))
-        if warmup < 0:
-            raise ValueError("Invalid value for warmup (int, >1): {}".format(warmup))
         if testfreq < 1:
             raise ValueError("Invalid value for testfreq (int, >=1): {}".format(testfreq))
 
@@ -191,7 +191,9 @@ class SSM(SSM_Optimizer):
         p = self.param_groups[0]['params'][0]
         if 'bucket' not in self.state:
             self.state['bucket'] = Bucket(1000, leak_ratio, p.dtype, p.device)
-
+            
+            
+        #main hyperparameters
         self.state['lr'] = float(lr)
         self.state['momemtum'] = float(momentum)
         self.state['dampening'] = float(dampening)
@@ -200,14 +202,13 @@ class SSM(SSM_Optimizer):
         self.state['tolerance'] = tolerance
         self.state['var_mode'] = var_mode
         self.state['minN_stats'] = int(minN_stats)
-        self.state['warmup'] = int(warmup)
         self.state['samplefreq'] = int(samplefreq)
         self.state['testfreq'] = int(testfreq)
-        self.state['logstats'] = int(logstats)
         self.state['nSteps'] = 0
         self.state['loss'] = 0
         self.state['mode'] = mode
-
+        self.state['step_test'] = 0
+        self.state['truncate'] = trun
 
         # statistics to monitor
         self.state['smoothing'] = 0
@@ -239,42 +240,51 @@ class SSM(SSM_Optimizer):
 
     def stats_adaptation(self):
         
+        #caculate the smooth
+        fristpart = 0
+        secondpart = 0
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                xk1 = p.data.view(-1)
+                dk = self.state[p]['step_buffer'].data.view(-1)     # OK after super().step()
+                fristpart += xk1.dot(dk).item()
+                secondpart += dk.dot(dk).item()
+        secondpart *= 0.5 * self.state['lr']
+        self.state['smoothing'] = fristpart + secondpart
+
+        '''
+        dk = self._gather_flat_buffer('step_buffer')
+        xk1 = self._gather_flat_param() 
+        gk = self._gather_flat_grad()
+        '''
         
         bucket = self.state['bucket']
         # add the statistic in to the bucket according to the frequency 
         if self.state['nSteps'] % self.state['samplefreq'] == 0:
-
+            #loss with smooth
             if self.state['mode'] == 'loss with smooth':
-                fristpart = 0
-                secondpart = 0
-        
-                for group in self.param_groups:
-                    for p in group['params']:
-                        if p.grad is None:
-                            continue
-                        xk1 = p.data.view(-1)
-                        dk = self.state[p]['step_buffer'].data.view(-1)     # OK after super().step()
-                        fristpart += xk1.dot(dk).item()
-                        secondpart += dk.dot(dk).item()
-                secondpart *= 0.5 * self.state['lr']
-        
-                '''
-                dk = self._gather_flat_buffer('step_buffer')
-                xk1 = self._gather_flat_param() 
-                gk = self._gather_flat_grad()
-                '''
-                
+                self.state['tolerance'] = 0.01
                 #self.state['smoothing'] = xk1.dot(gk).item() + (0.5 * self.state['lr']) * ((1 + self.state['momemtum'])/(1 - self.state['momemtum'])) * (dk.dot(dk).item())
-                self.state['smoothing'] = fristpart + secondpart
                 self.state['stats_val'] =  self.state['loss'] + self.state['smoothing']
-        
+                if self.state['step_test'] == 0:
+                    self.state['stats_val'] =  self.state['loss'] + self.state['smoothing']
+                else:
+                    self.state['loss'] = np.log10(self.state['loss']) / np.log10(10/self.state['step_test']) 
+                    self.state['stats_val'] = self.state['loss']  + self.state['smoothing']
+            #pure loss
             if self.state['mode'] == 'loss':
-                self.state['stats_val'] =  self.state['loss'] 
-            
+                self.state['tolerance'] = 0.005
+                if self.state['step_test'] == 0:
+                    self.state['stats_val'] =  self.state['loss'] 
+                else:
+                    self.state['loss'] = np.log10(self.state['loss']) / np.log10(10/self.state['step_test']) 
+                    self.state['stats_val'] = self.state['loss']  
+            #SASA+
             if self.state['mode'] == 'sasa_plus':
-                self.state['stats_x1d'] = xk1.dot(dk).item()
-                self.state['stats_ld2'] = (0.5 * self.state['lr']) * (dk.dot(dk).item())
-                self.state['stats_val'] = self.state['stats_x1d'] + self.state['stats_ld2']
+                self.state['stats_val'] = self.state['smoothing']
         
             ## add statistic to leaky bucket
             bucket.add(self.state['stats_val'])
@@ -293,8 +303,9 @@ class SSM(SSM_Optimizer):
             self.state['stats_stationary'] = int(stationary)
     
             ## perform statistical test for stationarity
-            if self.state['warmup'] < self.state['nSteps'] and self.state['stats_stationary'] == 1:
+            if self.state['stats_stationary'] == 1:
                 self.state['lr'] /= self.state['drop_factor']
+                self.state['step_test'] += 1
                 for group in self.param_groups:
                     group['lr'] = self.state['lr']
                 self._zero_buffers('momentum_buffer') #????
@@ -344,7 +355,6 @@ class SSM(SSM_Optimizer):
                 if buf_name in state:
                     state[buf_name].zero_()
         return None
-    
     
     
 
