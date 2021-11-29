@@ -612,7 +612,7 @@ num_iteration = [2,2,2,2] # for each layer do 1 iteration or you can change to [
 minibatch_size = 128
 wd = 0.0005 
 momentum = 0.9
-dampening = momentum
+dampening = 0
 
 #model hyperparameter
 keymode = 'loss with smooth'
