@@ -641,7 +641,7 @@ testfreq = len(trainloader)
 
 #Step 4: Train the NNs
 # One epoch is when an entire dataset is passed through the neural network only once. 
-f = open("newnew100", 'w')
+f = open("excel100", 'w')
 
 for my_model in modeldic:
     for leakratio in leakratio_list:
