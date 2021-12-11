@@ -582,7 +582,7 @@ def PreActResNet152():
 ### Implementation
 minibatch_size = 128
 num_epochs = 360
-lr = 1
+lr = 0.1
 degree = 256
 num_channel_input = 3 # since cifar10
 num_channel_u = degree # usaually take channel u and f same, suggested value = 64,128,256,512.....
