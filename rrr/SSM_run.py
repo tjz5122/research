@@ -45,7 +45,7 @@ test_param_groups["data_group"] = ["cifar10"]
 # flexible
 value_list = [test_param_groups[group] for group in test_param_groups]
 test_list = list(product(*value_list))
-command = 'python SSM_train.py --cuda --model={} --lr={} --wd={} --trail={} --drop={} -b={} --epochs={} --lk={} -m={} --d={} --sig={} --sf={} --trun={} --minstat={} --km={} --vm={} --data={}'
+command = 'python SSM_train.py --cuda --model={} --lr={} --wd={} --trail={} --drop={} --batchsize={} --epochs={} --lk={} --momentum={} --dampening={} --sig={} --sf={} --trun={} --minstat={} --km={} --vm={} --data={}'
 # flexible
 
 print("the total combinations of hyperparamater is", len(test_list))
