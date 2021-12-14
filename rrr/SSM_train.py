@@ -707,7 +707,7 @@ def main():
               labels = labels.cuda()
     
             # Forward pass to get the loss
-            if (my_model == "mgnet128") or (my_model == "mgnet256"):
+            if (args.model == "mgnet128") or (args.model == "mgnet256"):
                 outputs = my_model(0,images)   # We need additional 0 input for u in MgNet
             else:
                 outputs = my_model(images) 
@@ -730,7 +730,7 @@ def main():
               if use_cuda:
                   images = images.cuda()
                   labels = labels.cuda()
-              if my_model == "mgnet128" or my_model == "mgnet256":
+              if (args.model == "mgnet128") or (args.model == "mgnet256"):
                   outputs = my_model(0,images)   # We need additional 0 input for u in MgNet
               else:
                   outputs = my_model(images) 
