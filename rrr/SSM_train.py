@@ -591,15 +591,15 @@ def get_args():
     # For methods    
     parser.add_argument('--epochs', type=int, help='epoch number', default=120)
     
-    parser.add_argument('-b', '--batch-size', default=128, type=int, metavar='N', help='mini_batch size (default: 128)')
+    parser.add_argument('--batchsize', default=128, type=int, metavar='N', help='mini_batch size (default: 128)')
     
     parser.add_argument('--lr', '--learning-rate', default=1.0, type=float, metavar='LR', help='initial learning rate')
     
     parser.add_argument('--drop', default = 10, type=int, help='learning rate drop factor')
     
-    parser.add_argument('-m', '--momentum', default=0.9, type=float, metavar='M', help='momentum')
+    parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
     
-    parser.add_argument('-d', '--dampening', default=0.9, type=float, metavar='M', help='momentum')
+    parser.add_argument('--dampening', default=0.9, type=float, metavar='M', help='momentum')
     
     parser.add_argument('--weight-decay', '--wd', default=5e-4, type=float, metavar='W', help='weight decay (e.g. 5e-4)')
             
@@ -631,7 +631,7 @@ def main():
     args = get_args()  # get the arguments
 
     #implementation
-    minibatch_size = args.batch_size
+    minibatch_size = args.batchsize
     num_epochs =  args.epochs
     if args.data == 'cifar10':
         num_classes = 10
