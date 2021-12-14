@@ -599,7 +599,7 @@ def get_args():
     
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
     
-    parser.add_argument('--dampening', default=0.9, type=float, metavar='M', help='momentum')
+    parser.add_argument('--dampening', default=0.9, type=float, metavar='D', help='dampening')
     
     parser.add_argument('--weight-decay', '--wd', default=5e-4, type=float, metavar='W', help='weight decay (e.g. 5e-4)')
             
