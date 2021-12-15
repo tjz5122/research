@@ -59,10 +59,9 @@ class SSM_Optimizer(Optimizer):
                 # get momentum buffer.
                 if 'momentum_buffer' not in param_state:
                     buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                    buf.mul_(momentum).add_(1.0 - dampening, g_k)
                 else:
                     buf = param_state['momentum_buffer']
-                    buf.mul_(momentum).add_(1.0 - dampening, g_k)
+                buf.mul_(momentum).add_(1.0 - dampening, g_k)
             
                 p.data.add_(-group['lr'], buf)
                 
