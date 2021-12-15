@@ -10,6 +10,9 @@ import torchvision
 from timeit import default_timer as timer
 import argparse
 
+use_cuda = torch.cuda.is_available()
+print('Use GPU?', use_cuda)
+
 class SSM_Optimizer(Optimizer):
 
     def __init__(self, params, lr=-1, momentum=0, weight_decay=0):
