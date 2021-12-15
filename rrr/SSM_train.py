@@ -1,3 +1,4 @@
+
 import math
 import torch
 import torch.nn as nn
@@ -8,11 +9,6 @@ import numpy as np
 import torchvision
 from timeit import default_timer as timer
 import argparse
-import torchvision.models as models
-from efficientnet_pytorch import EfficientNet
-
-use_cuda = torch.cuda.is_available()
-print('Use GPU?', use_cuda)
 
 class SSM_Optimizer(Optimizer):
 
@@ -48,7 +44,7 @@ class SSM_Optimizer(Optimizer):
                 if weight_decay > 0:
                     p.grad.data.add_(weight_decay, p.data)
 
-    def SSM_direction_and_update(self, dampening = 0):
+    def SSM_direction_and_update(self):
 
         for group in self.param_groups:
             momentum = group['momentum']
@@ -60,9 +56,10 @@ class SSM_Optimizer(Optimizer):
                 # get momentum buffer.
                 if 'momentum_buffer' not in param_state:
                     buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
+                    buf.mul_(momentum).add_(1.0 - momentum, g_k)
                 else:
                     buf = param_state['momentum_buffer']
-                buf.mul_(momentum).add_(1.0 - dampening, g_k)
+                    buf.mul_(momentum).add_(1.0 - momentum, g_k)
             
                 p.data.add_(-group['lr'], buf)
                 
@@ -146,6 +143,7 @@ class Bucket(object):
         # confidence interval
         t_sigma_dof = stats.t.ppf(1-sigma/2., dof)
         self.statistic = std * t_sigma_dof / math.sqrt(self.count)
+        print(self.statistic)
         if step_test != 0:
             self.statistic -= truncate
             
@@ -154,9 +152,9 @@ class Bucket(object):
 
 class SSM(SSM_Optimizer):
 
-    def __init__(self, params, lr=-1, momentum=0, dampening = 0, weight_decay=0, 
+    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, 
                  drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='bm',
-                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, trun = 0.02, mode='loss_plus_smooth'):
+                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, trun=0.02, mode='loss_plus_smooth'):
 
         if lr <= 0:
             raise ValueError("Invalid value for learning rate (>0): {}".format(lr))
@@ -188,20 +186,18 @@ class SSM(SSM_Optimizer):
 
         self.state['lr'] = float(lr)
         self.state['momemtum'] = float(momentum)
-        self.state['dampening'] = float(dampening)
         self.state['drop_factor'] = drop_factor
         self.state['significance'] = significance
-        self.state['tolerance'] = float(tolerance)
-        self.state['var_mode'] = str(var_mode)
+        self.state['tolerance'] = tolerance
+        self.state['var_mode'] = var_mode
         self.state['minN_stats'] = int(minN_stats)
         self.state['samplefreq'] = int(samplefreq)
         self.state['testfreq'] = int(testfreq)
-        self.state['truncate'] = float(trun)
-
         self.state['nSteps'] = 0
         self.state['loss'] = 0
         self.state['mode'] = mode
         self.state['step_test'] = 0
+        self.state['truncate'] = trun
 
 
         # statistics to monitor
@@ -226,7 +222,7 @@ class SSM(SSM_Optimizer):
             loss = closure()
 
         self.add_weight_decay()
-        self.SSM_direction_and_update(dampening = self.state['dampening'])
+        self.SSM_direction_and_update()
         self.state['nSteps'] += 1
         self.stats_adaptation()
 
@@ -244,16 +240,20 @@ class SSM(SSM_Optimizer):
             if self.state['mode'] == 'loss_plus_smooth':
                 self.state['tolerance'] = 0.01
                 self.state['smoothing'] = xk1.dot(gk).item() - (0.5 * self.state['lr']) * ((1 + self.state['momemtum'])/(1 - self.state['momemtum'])) * (dk.dot(dk).item())
-                if self.state['step_test'] != 0:
+                if self.state['step_test'] == 0:
+                    self.state['stats_val'] =  self.state['loss'] + self.state['smoothing']
+                else:
                     self.state['loss'] = np.log10(self.state['loss']) / np.log10(10/self.state['step_test']) 
-                self.state['stats_val'] = self.state['loss']  + self.state['smoothing']
+                    self.state['stats_val'] = self.state['loss']  + self.state['smoothing']
                     
                     
             if self.state['mode'] == 'loss':
                 self.state['tolerance'] = 0.005
-                if self.state['step_test'] != 0:
+                if self.state['step_test'] == 0:
+                    self.state['stats_val'] =  self.state['loss'] 
+                else:
                     self.state['loss'] = np.log10(self.state['loss']) / np.log10(10/self.state['step_test']) 
-                self.state['stats_val'] = self.state['loss']  
+                    self.state['stats_val'] = self.state['loss']  
                 
                 
             if self.state['mode'] == 'sasa_plus':
@@ -327,247 +327,8 @@ class SSM(SSM_Optimizer):
                     state[buf_name].zero_()
         return None
     
-    
-    
-    
-###Mgnet
-class MgIte(nn.Module): 
-    def __init__(self, A, S):
-        super().__init__()
-        
-        self.A = A
-        self.S = S
-
-        self.bn1 =nn.BatchNorm2d(A.weight.size(0)) 
-        self.bn2 =nn.BatchNorm2d(S.weight.size(0)) 
-    
-    def forward(self, out):
-        u, f = out 
-        u = u + F.relu(self.bn2(self.S(F.relu(self.bn1((f-self.A(u))))))) 
-        out = (u, f)
-        return out
 
 
-
-class MgRestriction(nn.Module):
-    def __init__(self, A_old, A, Pi, R):
-        super().__init__()
-
-        self.A_old = A_old
-        self.A = A
-        self.Pi = Pi
-        self.R = R
-
-        self.bn1 = nn.BatchNorm2d(Pi.weight.size(0))   
-        self.bn2 = nn.BatchNorm2d(R.weight.size(0))    
-
-    def forward(self, out):
-        u_old, f_old = out 
-        u = F.relu(self.bn1(self.Pi(u_old)))                              
-        f = F.relu(self.bn2(self.R(f_old-self.A_old(u_old)))) + self.A(u)        
-        out = (u,f)
-        return out
-
-
-class MgNet(nn.Module):
-    def __init__(self, num_channel_input, num_iteration, num_channel_u, num_channel_f, num_classes):
-        super().__init__()
-        self.num_iteration = num_iteration
-        self.num_channel_u = num_channel_u
-        self.conv1 = nn.Conv2d(num_channel_input, num_channel_f, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(num_channel_f)        
-
-        
-        A = nn.Conv2d(num_channel_u, num_channel_f, kernel_size=3, stride=1, padding=1, bias=False)
-        S = nn.Conv2d(num_channel_f, num_channel_u, kernel_size=3,stride=1, padding=1, bias=False)
-        layers = []
-        for l, num_iteration_l in enumerate(num_iteration):
-            for i in range(num_iteration_l):
-                layers.append(MgIte(A, S)) 
-            setattr(self, 'layer'+str(l), nn.Sequential(*layers))
-
-            if l < len(num_iteration)-1:
-                A_old = A 
-                A = nn.Conv2d(num_channel_u, num_channel_f, kernel_size=3,stride=1, padding=1, bias=False)
-                S = nn.Conv2d(num_channel_f, num_channel_u, kernel_size=3,stride=1, padding=1, bias=False)
-                Pi = nn.Conv2d(num_channel_u, num_channel_u, kernel_size=3,stride=2, padding=1, bias=False)
-                R = nn.Conv2d(num_channel_f, num_channel_f, kernel_size=3, stride=2, padding=1, bias=False)
-                layers= [MgRestriction(A_old, A, Pi, R)] 
-        
-        self.pooling = nn.AdaptiveAvgPool2d(1) 
-        self.fc = nn.Linear(num_channel_u ,num_classes) 
-
-    def forward(self, u, f):
-        f = F.relu(self.bn1(self.conv1(f)))                
-        if use_cuda:                                        
-            u = torch.zeros(f.size(0),self.num_channel_u,f.size(2),f.size(3), device=torch.device('cuda')) 
-        else:
-            u = torch.zeros(f.size(0),self.num_channel_u,f.size(2),f.size(3))        
-        out = (u, f) 
-
-        for l in range(len(self.num_iteration)):
-            out = getattr(self, 'layer'+str(l))(out)
-        u, f = out       
-        u = self.pooling(u) #do avg pooling
-        u = u.view(u.shape[0], -1)  #reshape u batch_Size to vector
-        u = self.fc(u)
-        return u
-    
-###Resnet
-class BasicBlock(nn.Module):
-    def __init__(self, in_planes, planes, stride):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-
-        self.shortcut = nn.Sequential()
-        if stride != 1:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False),
-                                          nn.BatchNorm2d(planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10):
-        super().__init__()
-        self.in_planes = 64
-
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.linear = nn.Linear(512, num_classes)
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
-        layers = []
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
-            self.in_planes = planes
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = F.avg_pool2d(out, 4)
-        out = out.view(out.size(0), -1)
-        out = self.linear(out)
-        return out    
-    
-    
-    
-###pre-act resnet
-class PreActBlock(nn.Module):
-    '''Pre-activation version of the BasicBlock.'''
-    expansion = 1
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(PreActBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-
-        if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False)
-            )
-
-    def forward(self, x):
-        out = F.relu(self.bn1(x))
-        shortcut = self.shortcut(out) if hasattr(self, 'shortcut') else x
-        out = self.conv1(out)
-        out = self.conv2(F.relu(self.bn2(out)))
-        out += shortcut
-        return out
-
-
-class PreActBottleneck(nn.Module):
-    '''Pre-activation version of the original Bottleneck module.'''
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(PreActBottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
-
-        if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False)
-            )
-
-    def forward(self, x):
-        out = F.relu(self.bn1(x))
-        shortcut = self.shortcut(out) if hasattr(self, 'shortcut') else x
-        out = self.conv1(out)
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = self.conv3(F.relu(self.bn3(out)))
-        out += shortcut
-        return out
-
-
-class PreActResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10):
-        super(PreActResNet, self).__init__()
-        self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.linear = nn.Linear(512*block.expansion, num_classes)
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
-        layers = []
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
-            self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = F.avg_pool2d(out, 4)
-        out = out.view(out.size(0), -1)
-        out = self.linear(out)
-        return out
-
-
-def PreActResNet18():
-    return PreActResNet(PreActBlock, [2,2,2,2])
-
-def PreActResNet34():
-    return PreActResNet(PreActBlock, [3,4,6,3])
-
-def PreActResNet50():
-    return PreActResNet(PreActBottleneck, [3,4,6,3])
-
-def PreActResNet101():
-    return PreActResNet(PreActBottleneck, [3,4,23,3])
-
-def PreActResNet152():
-    return PreActResNet(PreActBottleneck, [3,8,36,3])
 
     
 
