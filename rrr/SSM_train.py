@@ -152,7 +152,7 @@ class Bucket(object):
 
 class SSM(SSM_Optimizer):
 
-    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, dampening = 0
+    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, dampening = 0,
                  drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='bm',
                  leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, trun=0.02, mode='loss_plus_smooth'):
 
