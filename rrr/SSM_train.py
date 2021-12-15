@@ -484,8 +484,6 @@ def get_args():
     # For trail control
     parser.add_argument('--trail', default=1, type=int, help='trail of the same params.')
     
-    parser.add_argument('--count', default=1, type=int, help='count of the experiments.')
-
     # For methods    
     parser.add_argument('--epochs', type=int, help='epoch number', default=120)
     
