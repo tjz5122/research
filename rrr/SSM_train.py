@@ -591,7 +591,7 @@ def main():
     
     
     optimizer = SSM(my_model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum, dampening=args.dampening, testfreq=len(trainloader), var_mode=args.varmode, leak_ratio=args.lk, minN_stats=args.minstat, mode=args.keymode, samplefreq=args.samplefreq, significance=args.sig, drop_factor=args.drop, trun=args.trun)
-    
+    print('
     test_accuracy_list = []
     lr_list = []
     statistic_list = []
@@ -644,7 +644,7 @@ def main():
         test_accuracy = float(correct)/total
         end = timer()
         
-        
+ 
         test_accuracy_list.append(test_accuracy)
         statistic_list.append(optimizer.state['statistic'])
         lr_list.append(optimizer.state['lr'])
@@ -653,18 +653,22 @@ def main():
     
     if args.trun == 0.02:
         sign_trun = '002'
-    if args.trun == 0.03:
+    elif args.trun == 0.03:
         sign_trun = '003'
+    if args.dampening == 0.9:
+        sign_dampening = '09'
+    elif args.dampening == 0.0:
+        sign_dampening = '00'
     loglr_list = list(np.log10(np.array(lr_list)))
     
     print('complete')
     # example of files for training  
     f = open("SSM_train_data", 'a')
-    f.write('{}_trun{}_lk{}_sf{}_d{}_testaccu = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, args.dampening, test_accuracy_list))
-    f.write('{}_trun{}_lk{}_sf{}_d{}_loglr = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, args.dampening, loglr_list))
-    f.write('{}_trun{}_lk{}_sf{}_d{}_stat = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, args.dampening, statistic_list))
-    f.write('{}_trun{}_lk{}_sf{}_d{}_loss = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, args.dampening, avg_loss_list))
-    f.write('{}_trun{}_lk{}_sf{}_d{}_time = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, args.dampening, time_list))
+    f.write('{}_trun{}_lk{}_sf{}_d{}_testaccu = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, sign_dampening, test_accuracy_list))
+    f.write('{}_trun{}_lk{}_sf{}_d{}_loglr = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, sign_dampening, loglr_list))
+    f.write('{}_trun{}_lk{}_sf{}_d{}_stat = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, sign_dampening, statistic_list))
+    f.write('{}_trun{}_lk{}_sf{}_d{}_loss = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, sign_dampening, avg_loss_list))
+    f.write('{}_trun{}_lk{}_sf{}_d{}_time = {}\n'.format(args.model, sign_trun, args.lk, args.samplefreq, sign_dampening, time_list))
     f.write("\n")
 
     f.close()
