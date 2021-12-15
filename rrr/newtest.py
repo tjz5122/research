@@ -47,7 +47,7 @@ class SSM_Optimizer(Optimizer):
                 if weight_decay > 0:
                     p.grad.data.add_(weight_decay, p.data)
 
-    def SSM_direction_and_update(self):
+    def SSM_direction_and_update(self, dampening = 0):
 
         for group in self.param_groups:
             momentum = group['momentum']
@@ -59,10 +59,10 @@ class SSM_Optimizer(Optimizer):
                 # get momentum buffer.
                 if 'momentum_buffer' not in param_state:
                     buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                    buf.mul_(momentum).add_(1.0 - momentum, g_k)
+                    buf.mul_(momentum).add_(1.0 - dampening, g_k)
                 else:
                     buf = param_state['momentum_buffer']
-                    buf.mul_(momentum).add_(1.0 - momentum, g_k)
+                    buf.mul_(momentum).add_(1.0 - dampening, g_k)
             
                 p.data.add_(-group['lr'], buf)
                 
@@ -152,12 +152,13 @@ class Bucket(object):
             
         return self.statistic < tolerance
 
+    
 
 class SSM(SSM_Optimizer):
 
-    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, 
+    def __init__(self, params, lr=-1, momentum=0, weight_decay=0, dampening = 0,
                  drop_factor=10, significance=0.05, tolerance = 0.01, var_mode='bm',
-                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, mode='loss_plus_smooth'):
+                 leak_ratio=8, minN_stats=100, testfreq=100, samplefreq = 10, trun=0.02, mode='loss_plus_smooth'):
 
         if lr <= 0:
             raise ValueError("Invalid value for learning rate (>0): {}".format(lr))
@@ -194,12 +195,15 @@ class SSM(SSM_Optimizer):
         self.state['tolerance'] = tolerance
         self.state['var_mode'] = var_mode
         self.state['minN_stats'] = int(minN_stats)
+        self.state['dampening'] = dampening
         self.state['samplefreq'] = int(samplefreq)
         self.state['testfreq'] = int(testfreq)
         self.state['nSteps'] = 0
         self.state['loss'] = 0
         self.state['mode'] = mode
         self.state['step_test'] = 0
+        self.state['truncate'] = trun
+
 
         # statistics to monitor
         self.state['smoothing'] = 0
@@ -210,7 +214,6 @@ class SSM(SSM_Optimizer):
         self.state['statistic'] = 0
         self.state['stats_stationary'] = 0
         self.state['stats_mean'] = 0
-        self.state['truncate'] = 0.02
 
 
     def step(self, closure=None):
@@ -224,7 +227,7 @@ class SSM(SSM_Optimizer):
             loss = closure()
 
         self.add_weight_decay()
-        self.SSM_direction_and_update()
+        self.SSM_direction_and_update(dampening = self.state['dampening'])
         self.state['nSteps'] += 1
         self.stats_adaptation()
 
@@ -328,7 +331,8 @@ class SSM(SSM_Optimizer):
                 if buf_name in state:
                     state[buf_name].zero_()
         return None
-
+    
+    
 ###Mgnet
 class MgIte(nn.Module): 
     def __init__(self, A, S):
@@ -581,12 +585,11 @@ def PreActResNet152():
 
 ### Implementation
 minibatch_size = 128
-num_epochs = 360
-lr = 0.1
-degree = 256
+num_epochs = 150
+lr = 1
 num_channel_input = 3 # since cifar10
-num_channel_u = degree # usaually take channel u and f same, suggested value = 64,128,256,512.....
-num_channel_f = degree
+num_channel_u = 128 # usaually take channel u and f same, suggested value = 64,128,256,512.....
+num_channel_f = 128
 num_classes = 10
 num_iteration = [2,2,2,2] # for each layer do 1 iteration or you can change to [2,2,2,2] or [2,1,1,1]
 
@@ -618,7 +621,8 @@ testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True
 testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
 
 
-optimizer = SSM(my_model.parameters(), lr=1, weight_decay=0.0001,momentum=0.9, testfreq=len(trainloader), var_mode='bm', tolerance = 0.01, minN_stats=100)
+optimizer = SSM(my_model.parameters(), lr=1, weight_decay=0.0005, momentum=0.9, testfreq=len(trainloader), var_mode='bm', dampening = 0.9, leak_ratio = 10, minN_stats = 100, mode = 'loss_plus_smooth',
+               samplefreq = 10, significance = 0.05, drop_factor = 10, trun = 0.02)
 
 
 
