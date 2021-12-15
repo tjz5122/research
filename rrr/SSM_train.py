@@ -591,7 +591,7 @@ def main():
     
     
     optimizer = SSM(my_model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum, dampening=args.dampening, testfreq=len(trainloader), var_mode=args.varmode, leak_ratio=args.lk, minN_stats=args.minstat, mode=args.keymode, samplefreq=args.samplefreq, significance=args.sig, drop_factor=args.drop, trun=args.trun)
-    print('
+
     test_accuracy_list = []
     lr_list = []
     statistic_list = []
@@ -623,7 +623,24 @@ def main():
             running_loss += loss.item()
             optimizer.step() #update the weights/parameters
         avg_loss_list.append(running_loss)
-        
+          
+        # Training accuracy
+        my_model.eval()
+        correct = 0
+        total = 0
+        for i, (images, labels) in enumerate(trainloader):
+            with torch.no_grad():
+              if use_cuda:
+                  images = images.cuda()
+                  labels = labels.cuda()  
+              if (args.model == "mgnet128") or (args.model == "mgnet256"):
+                 outputs = my_model(0,images)   # We need additional 0 input for u in MgNet
+              else:
+                 outputs = my_model(images) 
+              p_max, predicted = torch.max(outputs, 1) 
+              total += labels.size(0)
+              correct += (predicted == labels).sum()
+        training_accuracy = float(correct)/total        
         
         # Test accuracy
         my_model.eval()
