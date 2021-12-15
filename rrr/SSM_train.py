@@ -568,19 +568,28 @@ def main():
     # Step 3: load dataset
     if args.data == 'cifar10':
         normalize = torchvision.transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))
+        transform_train = torchvision.transforms.Compose([torchvision.transforms.RandomCrop(32, padding=4),
+                                                          torchvision.transforms.RandomHorizontalFlip(),
+                                                          torchvision.transforms.ToTensor(),
+                                                          normalize])
+        transform_test  = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),normalize])
+        trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=minibatch_size, shuffle=True)
+        testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
     
     if args.data == 'cifar100':
         normalize = torchvision.transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761))
+        transform_train = torchvision.transforms.Compose([torchvision.transforms.RandomCrop(32, padding=4),
+                                                          torchvision.transforms.RandomHorizontalFlip(),
+                                                          torchvision.transforms.ToTensor(),
+                                                          normalize])
+        transform_test  = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),normalize])
+        trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=minibatch_size, shuffle=True)
+        testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
     
-    transform_train = torchvision.transforms.Compose([torchvision.transforms.RandomCrop(32, padding=4),
-                                                      torchvision.transforms.RandomHorizontalFlip(),
-                                                      torchvision.transforms.ToTensor(),
-                                                      normalize])
-    transform_test  = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),normalize])
-    trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=minibatch_size, shuffle=True)
-    testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=minibatch_size, shuffle=False)
     
     optimizer = SSM(my_model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum, dampening=args.dampening, testfreq=len(trainloader), var_mode=args.varmode, leak_ratio=args.lk, minN_stats=args.minstat, mode=args.keymode, samplefreq=args.samplefreq, significance=args.sig, drop_factor=args.drop, trun=args.trun)
     
